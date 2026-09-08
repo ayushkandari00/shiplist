@@ -3,46 +3,930 @@ import ReactMarkdown from 'react-markdown';
 import { authApi, apiErrorMessage, postsApi, commentsApi, adminApi } from './lib/api';
 import { categories, statuses, statusMap, sortMap } from './constants/maps';
 import { useAuth } from './context/AuthContext';
+import LandingPage from './pages/LandingPage';
+import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
 
 const idOf = (item) => item?._id || item?.id;
 const initials = (name = '?') => name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
 const authorName = (post) => post?.author?.name || post?.authorName || 'Shiplist member';
-const ago = (value) => { if (!value) return ''; const minutes = Math.max(1, Math.floor((Date.now() - new Date(value)) / 60000)); return minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`; };
+const ago = (value) => {
+  if (!value) return '';
+  const minutes = Math.max(1, Math.floor((Date.now() - new Date(value)) / 60000));
+  return minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`;
+};
 const Icon = ({ children }) => <span className="icon" aria-hidden="true">{children}</span>;
 const Avatar = ({ name }) => <span className="avatar">{initials(name)}</span>;
-const Badge = ({ status, category }) => { const item = statusMap[status]; return <span className={`badge ${item?.tone || 'category'}`}>{item?.label || category}</span>; };
+const Badge = ({ status, category }) => {
+  const item = statusMap[status];
+  return <span className={`badge ${item?.tone || 'category'}`}>{item?.label || category}</span>;
+};
 const isAdmin = (user) => user?.role === 'ADMIN';
 const isOwner = (user, item) => String(idOf(item?.author) || item?.author) === String(idOf(user));
 
-function Toast({ toast }) { return toast ? <div className={`toast ${toast.kind || ''}`}>{toast.message}</div> : null; }
-function SkeletonRows() { return <div className="list skeleton-list">{[1,2,3,4].map((n) => <div className="skeleton-row" key={n}><i/><div><b/><span/><em/></div></div>)}</div>; }
-function Vote({ post, onVote }) { const voted = Boolean(post.hasVoted); return <button className={`vote ${voted ? 'voted' : ''}`} onClick={(event) => { event.stopPropagation(); onVote(post); }}><Icon>↑</Icon><strong>{post.voteCount ?? 0}</strong></button>; }
-function PostRow({ post, onOpen, onVote }) { return <article className="post-row" onClick={() => onOpen(idOf(post))} tabIndex="0"><Vote post={post} onVote={onVote}/><div className="post-main"><div className="post-heading"><h3>{post.title}</h3><Badge category={post.category}/><Badge status={post.status}/></div><p>{post.description}</p><div className="post-meta"><Avatar name={authorName(post)}/><span>{authorName(post)}</span><span>·</span><span>{ago(post.createdAt)}</span><span className="comments"><Icon>◌</Icon> {post.commentCount ?? 0}</span></div></div><Icon>›</Icon></article>; }
-
-function PostForm({ post, onCancel, onSave }) { const [form, setForm] = useState({ title: post?.title || '', description: post?.description || '', category: post?.category || categories[0] }); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const update = (key, value) => setForm({ ...form, [key]: value }); const submit = async () => { if (form.title.trim().length < 5 || form.description.trim().length < 10) return setError('Title needs 5 characters and description needs 10.'); setSaving(true); try { await onSave(form); } catch (err) { setError(apiErrorMessage(err)); } finally { setSaving(false); } }; return <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true"><header><div><p className="eyebrow">{post ? 'Edit request' : 'New request'}</p><h2>{post ? 'Refine the request' : 'Start a conversation'}</h2></div><button className="close" onClick={onCancel}>×</button></header><label>Title<input value={form.title} onChange={(e) => update('title', e.target.value)} maxLength="200" placeholder="What should we ship?"/></label><label>Description<textarea value={form.description} onChange={(e) => update('description', e.target.value)} placeholder="Explain the customer problem and desired outcome."/></label><label>Category<select value={form.category} onChange={(e) => update('category', e.target.value)}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>{error && <p className="form-error">{error}</p>}<footer><button className="outline" onClick={onCancel}>Cancel</button><button className="primary" disabled={saving} onClick={submit}>{saving ? 'Saving…' : post ? 'Save changes' : 'Create request'}</button></footer></section></div>; }
-
-function Feed({ openPost, toast }) { const { user } = useAuth(); const [posts, setPosts] = useState([]); const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 }); const [filters, setFilters] = useState({ search: '', category: '', status: '', sortLabel: 'Trending', page: 1 }); const [query, setQuery] = useState(''); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [create, setCreate] = useState(false);
- useEffect(() => { const timer = setTimeout(() => { setFilters((old) => ({ ...old, search: query, page: 1 })); }, 350); return () => clearTimeout(timer); }, [query]);
- const load = async () => { setLoading(true); setError(''); try { const sort = sortMap[filters.sortLabel]; const data = await postsApi.list({ page: filters.page, limit: 10, search: filters.search || undefined, category: filters.category || undefined, status: filters.status || undefined, ...sort }); setPosts(data.posts || []); setPagination(data.pagination || { page: 1, pages: 1, total: data.posts?.length || 0 }); } catch (err) { setError(apiErrorMessage(err)); } finally { setLoading(false); } };
- useEffect(() => { load(); }, [filters.page, filters.search, filters.category, filters.status, filters.sortLabel]);
- const vote = async (post) => { if (!user) return toast('Log in to vote.', 'error'); const previous = post; setPosts((items) => items.map((item) => idOf(item) === idOf(post) ? { ...item, hasVoted: !item.hasVoted, voteCount: item.voteCount + (item.hasVoted ? -1 : 1) } : item)); try { const result = await postsApi.vote(idOf(post), post.hasVoted); setPosts((items) => items.map((item) => idOf(item) === idOf(post) ? { ...item, ...result } : item)); } catch (err) { setPosts((items) => items.map((item) => idOf(item) === idOf(post) ? previous : item)); toast(apiErrorMessage(err), 'error'); } };
- const createPost = async (form) => { if (!user) { toast('Log in to create a request.', 'error'); return; } await postsApi.create(form); setCreate(false); toast('Request created'); load(); };
- const set = (key, value) => setFilters({ ...filters, [key]: value, page: 1 });
- return <main className="page feed"><header className="page-head"><div><p className="eyebrow">Customer feedback</p><h1>What should we ship next?</h1><p className="subhead">Vote on ideas, add the missing context, and follow progress.</p></div><button className="primary" onClick={() => user ? setCreate(true) : toast('Log in to create a request.', 'error')}><Icon>+</Icon> New request</button></header><section className="toolbar"><label className="search"><Icon>⌕</Icon><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search requests"/></label><select value={filters.sortLabel} onChange={(e) => set('sortLabel', e.target.value)}>{Object.keys(sortMap).map((option) => <option key={option}>{option}</option>)}</select><select value={filters.category} onChange={(e) => set('category', e.target.value)}><option value="">All categories</option>{categories.map((category) => <option key={category}>{category}</option>)}</select><select value={filters.status} onChange={(e) => set('status', e.target.value)}><option value="">All statuses</option>{statuses.map((status) => <option key={status}>{status}</option>)}</select></section><div className="feed-label"><span>{pagination.total} requests</span><span>{filters.search ? `Results for “${filters.search}”` : `Sorted by ${filters.sortLabel.toLowerCase()}`}</span></div>{loading ? <SkeletonRows/> : error ? <div className="empty"><strong>Couldn’t load requests.</strong><p>{error}</p><button className="outline" onClick={load}>Try again</button></div> : <section className="list">{posts.length ? posts.map((post) => <PostRow key={idOf(post)} post={post} onOpen={openPost} onVote={vote}/>) : <div className="empty"><strong>No requests match this view.</strong><p>{filters.category ? `No ${filters.category} requests yet — be the first to suggest one.` : 'Try another search or filter.'}</p></div>}</section>}<footer className="pager"><button disabled={pagination.page <= 1} onClick={() => setFilters({ ...filters, page: pagination.page - 1 })}>← Previous</button><span>Page {pagination.page} of {pagination.pages || 1}</span><button disabled={pagination.page >= pagination.pages} onClick={() => setFilters({ ...filters, page: pagination.page + 1 })}>Next →</button></footer>{create && <PostForm onCancel={() => setCreate(false)} onSave={createPost}/>}</main>;
+function Toast({ toast }) {
+  return toast ? <div className={`toast ${toast.kind || ''}`}>{toast.message}</div> : null;
 }
 
-function Comment({ comment, depth, postId, reload, toast }) { const { user } = useAuth(); const [reply, setReply] = useState(false); const [content, setContent] = useState(''); const [editing, setEditing] = useState(false); const [draft, setDraft] = useState(comment.content); const canEdit = isAdmin(user) || isOwner(user, comment); const saveReply = async () => { try { await commentsApi.create(postId, { content, parentComment: idOf(comment) }); setContent(''); setReply(false); reload(); } catch (err) { toast(apiErrorMessage(err), 'error'); } }; const saveEdit = async () => { try { await commentsApi.update(idOf(comment), { content: draft }); setEditing(false); reload(); } catch (err) { toast(apiErrorMessage(err), 'error'); } }; const remove = async () => { if (!window.confirm('Delete this comment?')) return; try { await commentsApi.remove(idOf(comment)); reload(); } catch (err) { toast(apiErrorMessage(err), 'error'); } }; return <article className={`comment ${depth ? 'reply' : ''}`}><Avatar name={authorName(comment)}/><div className="comment-body"><div><strong>{authorName(comment)}</strong><span>{ago(comment.createdAt)}</span></div>{editing ? <><textarea value={draft} onChange={(e) => setDraft(e.target.value)}/><button className="text-button" onClick={saveEdit}>Save</button><button className="text-button" onClick={() => setEditing(false)}>Cancel</button></> : <div className="comment-markdown"><ReactMarkdown>{comment.content}</ReactMarkdown></div>}<div className="comment-actions">{user && <button className="text-button" onClick={() => setReply(!reply)}>Reply</button>}{canEdit && <button className="text-button" onClick={() => setEditing(true)}>Edit</button>}{canEdit && <button className="text-button danger" onClick={remove}>Delete</button>}</div>{reply && <div className="reply-compose"><textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="Write a reply…"/><button className="primary small" disabled={content.trim().length < 1} onClick={saveReply}>Reply</button></div>}{(comment.replies || []).map((child) => <Comment key={idOf(child)} comment={child} depth={depth + 1} postId={postId} reload={reload} toast={toast}/>)}</div></article>; }
-
-function Detail({ postId, back, toast }) { const { user } = useAuth(); const [post, setPost] = useState(null); const [comments, setComments] = useState([]); const [loading, setLoading] = useState(true); const [comment, setComment] = useState(''); const [edit, setEdit] = useState(false); const load = async () => { setLoading(true); try { const [postData, commentData] = await Promise.all([postsApi.get(postId), commentsApi.list(postId)]); setPost(postData.post || postData); setComments(commentData.comments || commentData || []); } catch (err) { toast(apiErrorMessage(err), 'error'); } finally { setLoading(false); } }; useEffect(() => { load(); }, [postId]); if (loading) return <main className="page detail"><SkeletonRows/></main>; if (!post) return <main className="page detail"><button className="back" onClick={back}>← All requests</button><div className="empty">This request could not be found.</div></main>;
- const vote = async () => { if (!user) return toast('Log in to vote.', 'error'); const previous = post; setPost({ ...post, hasVoted: !post.hasVoted, voteCount: post.voteCount + (post.hasVoted ? -1 : 1) }); try { const result = await postsApi.vote(idOf(post), post.hasVoted); setPost({ ...post, ...result }); } catch (err) { setPost(previous); toast(apiErrorMessage(err), 'error'); } }; const addComment = async () => { if (!user) return toast('Log in to comment.', 'error'); try { await commentsApi.create(postId, { content: comment }); setComment(''); load(); } catch (err) { toast(apiErrorMessage(err), 'error'); } }; const canManage = isAdmin(user) || isOwner(user, post); const deletePost = async () => { if (!window.confirm('Delete this request?')) return; try { await postsApi.remove(postId); toast('Request deleted'); back(); } catch (err) { toast(apiErrorMessage(err), 'error'); } };
- return <main className="page detail"><button className="back" onClick={back}>← All requests</button><div className="detail-grid"><article><div className="detail-top"><Vote post={post} onVote={vote}/><div><div className="badge-line"><Badge category={post.category}/><Badge status={post.status}/></div><h1>{post.title}</h1><div className="post-meta"><Avatar name={authorName(post)}/><span>Suggested by {authorName(post)}</span><span>·</span><span>{ago(post.createdAt)}</span></div></div></div>{canManage && <div className="manage-actions"><button className="outline" onClick={() => setEdit(true)}>Edit request</button><button className="text-button danger" onClick={deletePost}>Delete</button></div>}<div className="markdown"><ReactMarkdown>{post.description}</ReactMarkdown></div></article><aside className="side-note"><strong>{post.voteCount || 0} supporters</strong><p>Voting is public feedback. We’ll show progress here when the team updates it.</p></aside></div><section className="discussion"><h2>Discussion <span>{post.commentCount || 0}</span></h2><div className="composer"><Avatar name={user?.name}/><textarea value={comment} onChange={(e) => setComment(e.target.value)} disabled={!user} placeholder={user ? 'Add context or ask a question…' : 'Log in to join the discussion'}/><button className="primary" disabled={user && !comment.trim()} onClick={addComment}>{user ? 'Comment' : 'Log in to comment'}</button></div>{comments.map((item) => <Comment key={idOf(item)} comment={item} depth={0} postId={postId} reload={load} toast={toast}/>)}</section>{edit && <PostForm post={post} onCancel={() => setEdit(false)} onSave={async (form) => { const saved = await postsApi.update(postId, form); setPost(saved.post || saved); setEdit(false); toast('Request updated'); }}/>}</main>;
+function SkeletonRows() {
+  return (
+    <div className="list skeleton-list">
+      {[1, 2, 3, 4].map((n) => (
+        <div className="skeleton-row" key={n}>
+          <i />
+          <div>
+            <b />
+            <span />
+            <em />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function Roadmap({ openPost }) { const [posts, setPosts] = useState([]); const [loading, setLoading] = useState(true); useEffect(() => { Promise.all(['Planned', 'In Progress', 'Completed'].map((status) => postsApi.list({ status, limit: 100, sort: 'createdAt', order: 'desc' }))).then((items) => setPosts(items.flatMap((item) => item.posts || []))).finally(() => setLoading(false)); }, []); return <main className="page roadmap"><header className="page-head"><div><p className="eyebrow">Public roadmap</p><h1>From signal to shipped.</h1><p className="subhead">The work customers can see moving forward.</p></div></header>{loading ? <SkeletonRows/> : <div className="lanes">{['Planned', 'In Progress', 'Completed'].map((status) => <section className="lane" key={status}><header><Badge status={status}/><span>{posts.filter((post) => post.status === status).length}</span></header>{posts.filter((post) => post.status === status).map((post) => <button key={idOf(post)} className="road-card" onClick={() => openPost(idOf(post))}><strong>{post.title}</strong><div><Badge category={post.category}/><span>↑ {post.voteCount}</span></div></button>)}</section>)}</div>}</main>; }
+function Vote({ post, onVote }) {
+  const voted = Boolean(post.hasVoted);
+  return (
+    <button
+      className={`vote ${voted ? 'voted' : ''}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onVote(post);
+      }}
+      title={voted ? 'Remove vote' : 'Upvote'}
+    >
+      <Icon>👍</Icon> {post.voteCount}
+    </button>
+  );
+}
 
-function Admin({ openPost, toast }) { const [posts, setPosts] = useState([]); const [loading, setLoading] = useState(true); const { user } = useAuth(); const load = async () => { setLoading(true); try { const data = await postsApi.list({ limit: 100, sort: 'createdAt', order: 'desc' }); setPosts(data.posts || []); } catch (err) { toast(apiErrorMessage(err), 'error'); } finally { setLoading(false); } }; useEffect(() => { load(); }, []); if (!isAdmin(user)) return <main className="page not-authorized"><p className="eyebrow">Restricted area</p><h1>You don’t have access to this board.</h1><p>Ask a workspace administrator if you need to manage requests.</p></main>; const change = async (post, status) => { try { const data = await adminApi.updateStatus(idOf(post), status); const saved = data.post || data; setPosts(posts.map((item) => idOf(item) === idOf(post) ? saved : item)); toast('Roadmap status updated'); } catch (err) { toast(apiErrorMessage(err), 'error'); } }; return <main className="page admin"><header className="page-head"><div><p className="eyebrow">Workspace administration</p><h1>Request triage</h1></div></header>{loading ? <SkeletonRows/> : <div className="table-wrap"><table><thead><tr><th>Request</th><th>Category</th><th>Votes</th><th>Status</th></tr></thead><tbody>{posts.map((post) => <tr key={idOf(post)}><td><button className="table-link" onClick={() => openPost(idOf(post))}>{post.title}</button><small>{authorName(post)}</small></td><td><Badge category={post.category}/></td><td>{post.voteCount}</td><td><select value={post.status} onChange={(e) => change(post, e.target.value)}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></td></tr>)}</tbody></table></div>}</main>; }
+function PostRow({ post, onOpen, onVote }) {
+  return (
+    <article className="post-row" onClick={() => onOpen(idOf(post))} tabIndex="0" role="button">
+      <Vote post={post} onVote={onVote} />
+      <div className="post-main">
+        <div className="post-header">
+          <h3>{post.title}</h3>
+          <Badge status={post.status} category={post.category} />
+        </div>
+        <p className="post-excerpt">{post.description?.slice(0, 100)}</p>
+        <div className="post-meta">
+          <span>
+            <Avatar name={authorName(post)} /> {authorName(post)}
+          </span>
+          <span>{ago(post.createdAt)}</span>
+          <span>
+            <Icon>💬</Icon> {post.commentCount || 0}
+          </span>
+        </div>
+      </div>
+    </article>
+  );
+}
 
-function AuthPage({ mode, go, toast }) { const { login, signup, refreshUser } = useAuth(); const [form, setForm] = useState({ name: '', email: '', password: '', token: '' }); const [busy, setBusy] = useState(false); const [notice, setNotice] = useState(''); const update = (key, value) => setForm({ ...form, [key]: value }); const submit = async () => { setBusy(true); setNotice(''); try { if (mode === 'login') { await login({ email: form.email, password: form.password }); go('feed'); toast('Welcome back'); } else if (mode === 'signup') { const data = await signup({ name: form.name, email: form.email, password: form.password }); setNotice(data.verificationToken ? `Account created. Your simulated verification token is: ${data.verificationToken}` : 'Account created. Check your simulated verification link.'); } else if (mode === 'forgot') { const data = await authApi.forgotPassword({ email: form.email }); setNotice(data.resetToken ? `Your simulated reset token is: ${data.resetToken}` : 'If that account exists, a reset token has been generated.'); } else if (mode === 'reset') { await authApi.resetPassword({ token: form.token, password: form.password }); setNotice('Password reset. You can log in now.'); } else if (mode === 'verify') { await authApi.verifyEmail(form.token); await refreshUser(); setNotice('Email verified.'); } } catch (err) { setNotice(apiErrorMessage(err)); } finally { setBusy(false); } };
- const labels = { login: ['Welcome back', 'Log in'], signup: ['Create an account', 'Create account'], forgot: ['Reset your password', 'Send reset token'], reset: ['Set a new password', 'Reset password'], verify: ['Verify your email', 'Verify email'] }[mode]; return <main className="auth"><button className="wordmark" onClick={() => go('feed')}>shiplist<span>·</span></button><section><p className="eyebrow">{labels[0]}</p><h1>{mode === 'login' ? 'Log in to Shiplist.' : labels[0]}</h1>{mode === 'signup' && <label>Name<input value={form.name} onChange={(e) => update('name', e.target.value)} /></label>}{mode !== 'verify' && mode !== 'reset' && <label>Email<input type="email" value={form.email} onChange={(e) => update('email', e.target.value)} /></label>}{(mode === 'login' || mode === 'signup' || mode === 'reset') && <label>{mode === 'reset' ? 'New password' : 'Password'}<input type="password" value={form.password} onChange={(e) => update('password', e.target.value)} /></label>}{(mode === 'verify' || mode === 'reset') && <label>Token<input value={form.token} onChange={(e) => update('token', e.target.value)} /></label>}{notice && <p className="form-notice">{notice}</p>}<button className="primary wide" disabled={busy} onClick={submit}>{busy ? 'Working…' : labels[1]}</button>{mode === 'login' && <><button className="text-button" onClick={() => go('forgot')}>Forgot password?</button><button className="text-button" onClick={() => go('signup')}>Need an account? Sign up</button></>}{mode === 'signup' && <button className="text-button" onClick={() => go('login')}>Already have an account? Log in</button>}{mode === 'reset' && <button className="text-button" onClick={() => go('login')}>Back to login</button>}</section></main>; }
+function PostForm({ post, onCancel, onSave }) {
+  const [form, setForm] = useState({
+    title: post?.title || '',
+    description: post?.description || '',
+    category: post?.category || categories[0],
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
-export default function App() { const { user, loading, logout } = useAuth(); const [route, setRoute] = useState({ page: 'feed', postId: null }); const [toastState, setToastState] = useState(null); const toast = (message, kind = '') => setToastState({ message, kind }); useEffect(() => { if (!toastState) return; const timer = setTimeout(() => setToastState(null), 3200); return () => clearTimeout(timer); }, [toastState]); const go = (page, postId = null) => setRoute({ page, postId }); if (loading) return <main className="page"><SkeletonRows/></main>; if (['login','signup','forgot','reset','verify'].includes(route.page)) return <AuthPage mode={route.page} go={go} toast={toast}/>; return <><nav><button className="wordmark" onClick={() => go('feed')}>shiplist<span>·</span></button><div className="nav-links"><button className={route.page === 'feed' ? 'active' : ''} onClick={() => go('feed')}>Feedback</button><button className={route.page === 'roadmap' ? 'active' : ''} onClick={() => go('roadmap')}>Roadmap</button>{isAdmin(user) && <button className={route.page === 'admin' ? 'active' : ''} onClick={() => go('admin')}>Manage</button>}</div><div className="nav-end">{user ? <button className="user-menu" onClick={async () => { await logout(); go('feed'); toast('Logged out'); }}><Avatar name={user.name}/><span>{user.name}</span><Icon>⌄</Icon></button> : <><button className="nav-login" onClick={() => go('login')}>Log in</button><button className="primary small" onClick={() => go('signup')}>Sign up</button></>}</div></nav>{route.page === 'feed' && <Feed openPost={(id) => go('detail', id)} toast={toast}/>} {route.page === 'detail' && <Detail postId={route.postId} back={() => go('feed')} toast={toast}/>} {route.page === 'roadmap' && <Roadmap openPost={(id) => go('detail', id)}/>} {route.page === 'admin' && <Admin openPost={(id) => go('detail', id)} toast={toast}/>}<Toast toast={toastState}/></>; }
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+    setError('');
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await onSave(form);
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="form-modal">
+      <div className="form-header">
+        <h2>{post ? 'Edit request' : 'New request'}</h2>
+      </div>
+      {error && <div className="form-error">{error}</div>}
+      <div className="form-group">
+        <label>Title</label>
+        <input
+          name="title"
+          value={form.title}
+          onChange={handleChange}
+          placeholder="What feature should we ship?"
+          required
+          disabled={busy}
+        />
+      </div>
+      <div className="form-group">
+        <label>Description</label>
+        <textarea
+          name="description"
+          value={form.description}
+          onChange={handleChange}
+          placeholder="Describe the idea..."
+          rows="5"
+          required
+          disabled={busy}
+        />
+      </div>
+      <div className="form-group">
+        <label>Category</label>
+        <select name="category" value={form.category} onChange={handleChange} disabled={busy}>
+          {categories.map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="form-actions">
+        <button type="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <button type="submit" className="btn-primary" disabled={busy}>
+          {busy ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function Feed({ openPost, toast }) {
+  const { user } = useAuth();
+  const [posts, setPosts] = useState([]);
+  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
+  const [filters, setFilters] = useState({
+    page: 1,
+    category: 'All',
+    status: 'All',
+    sortLabel: 'Newest',
+    search: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [create, setCreate] = useState(false);
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((old) => ({ ...old, search: query, page: 1 }));
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const sort = sortMap[filters.sortLabel];
+      const data = await postsApi.list({
+        page: filters.page,
+        limit: 10,
+        search: filters.search,
+        category: filters.category === 'All' ? undefined : filters.category,
+        status: filters.status === 'All' ? undefined : filters.status,
+        sort: sort?.sort,
+        order: sort?.order,
+      });
+      setPosts(data.posts || []);
+      setPagination({
+        page: data.page,
+        pages: data.pages,
+        total: data.total,
+      });
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, [filters.page, filters.search, filters.category, filters.status, filters.sortLabel]);
+
+  const vote = async (post) => {
+    if (!user) return toast('Log in to vote.', 'error');
+    const previous = post;
+    setPosts((items) =>
+      items.map((item) =>
+        idOf(item) === idOf(post)
+          ? { ...item, hasVoted: !item.hasVoted, voteCount: item.voteCount + (item.hasVoted ? -1 : 1) }
+          : item
+      )
+    );
+    try {
+      await postsApi.vote(idOf(post), post.hasVoted);
+    } catch (err) {
+      setPosts((items) =>
+        items.map((item) => (idOf(item) === idOf(post) ? previous : item))
+      );
+      toast(apiErrorMessage(err), 'error');
+    }
+  };
+
+  const createPost = async (form) => {
+    if (!user) {
+      toast('Log in to create a request.', 'error');
+      return;
+    }
+    await postsApi.create(form);
+    setCreate(false);
+    toast('Request created');
+    load();
+  };
+
+  const set = (key, value) => setFilters({ ...filters, [key]: value, page: 1 });
+
+  return (
+    <main className="page feed">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">Customer feedback</p>
+          <h1>What should we ship next?</h1>
+          <p className="subhead">Vote on ideas, add them to the public roadmap</p>
+        </div>
+        {user && (
+          <button className="btn btn-primary" onClick={() => setCreate(true)}>
+            <Icon>➕</Icon> New request
+          </button>
+        )}
+      </header>
+
+      {create && (
+        <PostForm
+          onCancel={() => setCreate(false)}
+          onSave={createPost}
+        />
+      )}
+
+      <section className="page-filters">
+        <input
+          type="text"
+          className="search"
+          placeholder="Search..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Search requests"
+        />
+        <select value={filters.category} onChange={(e) => set('category', e.target.value)}>
+          <option>All</option>
+          {categories.map((cat) => (
+            <option key={cat}>{cat}</option>
+          ))}
+        </select>
+        <select value={filters.status} onChange={(e) => set('status', e.target.value)}>
+          <option>All</option>
+          {statuses.map((st) => (
+            <option key={st}>{st}</option>
+          ))}
+        </select>
+        <select value={filters.sortLabel} onChange={(e) => set('sortLabel', e.target.value)}>
+          <option>Newest</option>
+          <option>Trending</option>
+          <option>Most Discussed</option>
+        </select>
+      </section>
+
+      {error && <div className="form-error">{error}</div>}
+
+      {loading ? (
+        <SkeletonRows />
+      ) : posts.length > 0 ? (
+        <div className="list">
+          {posts.map((post) => (
+            <PostRow
+              key={idOf(post)}
+              post={post}
+              onOpen={openPost}
+              onVote={vote}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <p>No requests found. Be the first to suggest one!</p>
+        </div>
+      )}
+
+      {pagination.pages > 1 && (
+        <div className="pagination">
+          <button
+            disabled={pagination.page === 1}
+            onClick={() => set('page', pagination.page - 1)}
+          >
+            Previous
+          </button>
+          <span>
+            Page {pagination.page} of {pagination.pages}
+          </span>
+          <button
+            disabled={pagination.page === pagination.pages}
+            onClick={() => set('page', pagination.page + 1)}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function Comment({ comment, depth, postId, reload, toast }) {
+  const { user } = useAuth();
+  const [reply, setReply] = useState(false);
+  const [content, setContent] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState(comment.content);
+  const [busy, setBusy] = useState(false);
+
+  const handleReply = async () => {
+    if (!user) return toast('Log in to comment.', 'error');
+    if (!content.trim()) return;
+    setBusy(true);
+    try {
+      await commentsApi.create(postId, {
+        content,
+        parentComment: comment._id,
+      });
+      setContent('');
+      setReply(false);
+      reload();
+    } catch (err) {
+      toast(apiErrorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm('Delete this comment?')) return;
+    setBusy(true);
+    try {
+      await commentsApi.delete(comment._id);
+      reload();
+    } catch (err) {
+      toast(apiErrorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editContent.trim()) return;
+    setBusy(true);
+    try {
+      await commentsApi.update(comment._id, { content: editContent });
+      setEditContent('');
+      setEditing(false);
+      reload();
+    } catch (err) {
+      toast(apiErrorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={`comment comment-depth-${Math.min(depth, 3)}`}>
+      <div className="comment-header">
+        <Avatar name={comment.author?.name} /> <strong>{comment.author?.name}</strong>
+        <em>{ago(comment.createdAt)}</em>
+      </div>
+
+      {editing ? (
+        <div>
+          <textarea
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            rows="3"
+            disabled={busy}
+          />
+          <div className="comment-actions">
+            <button onClick={handleSaveEdit} disabled={busy}>
+              Save
+            </button>
+            <button onClick={() => setEditing(false)} disabled={busy}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <ReactMarkdown>{comment.content}</ReactMarkdown>
+          <div className="comment-actions">
+            {user && isOwner(user, comment) && (
+              <>
+                <button onClick={() => setEditing(true)} disabled={busy}>
+                  Edit
+                </button>
+                <button onClick={handleDelete} disabled={busy}>
+                  Delete
+                </button>
+              </>
+            )}
+            {user && (
+              <button onClick={() => setReply(!reply)} disabled={busy}>
+                Reply
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {reply && (
+        <div className="comment-reply-form">
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Write a reply..."
+            rows="2"
+            disabled={busy}
+          />
+          <button onClick={handleReply} disabled={busy}>
+            {busy ? 'Posting...' : 'Post reply'}
+          </button>
+        </div>
+      )}
+
+      {comment.replies && comment.replies.length > 0 && (
+        <div className="replies">
+          {comment.replies.map((reply) => (
+            <Comment
+              key={reply._id}
+              comment={reply}
+              depth={depth + 1}
+              postId={postId}
+              reload={reload}
+              toast={toast}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Detail({ postId, back, toast }) {
+  const { user } = useAuth();
+  const [post, setPost] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newComment, setNewComment] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [postData, commentsData] = await Promise.all([
+        postsApi.get(postId),
+        commentsApi.list(postId),
+      ]);
+      setPost(postData);
+
+      // Build threaded comments
+      const commentMap = {};
+      const threaded = [];
+      commentsData.forEach((c) => {
+        commentMap[c._id] = { ...c, replies: [] };
+      });
+      commentsData.forEach((c) => {
+        if (c.parentComment) {
+          commentMap[c.parentComment]?.replies?.push(commentMap[c._id]);
+        } else {
+          threaded.push(commentMap[c._id]);
+        }
+      });
+      setComments(threaded);
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, [postId]);
+
+  const vote = async () => {
+    if (!user) return toast('Log in to vote.', 'error');
+    const previous = post;
+    setPost({
+      ...post,
+      hasVoted: !post.hasVoted,
+      voteCount: post.voteCount + (post.hasVoted ? -1 : 1),
+    });
+    try {
+      await postsApi.vote(postId, post.hasVoted);
+    } catch (err) {
+      setPost(previous);
+      toast(apiErrorMessage(err), 'error');
+    }
+  };
+
+  const addComment = async () => {
+    if (!user) return toast('Log in to comment.', 'error');
+    if (!newComment.trim()) return;
+    setBusy(true);
+    try {
+      await commentsApi.create(postId, { content: newComment });
+      setNewComment('');
+      load();
+    } catch (err) {
+      toast(apiErrorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return <main className="page detail"><SkeletonRows /></main>;
+  if (error) return <main className="page detail"><div className="form-error">{error}</div></main>;
+  if (!post) return <main className="page detail"><p>Post not found</p></main>;
+
+  return (
+    <main className="page detail">
+      <button className="back" onClick={back}>
+        ← All requests
+      </button>
+      <div className="detail-grid">
+        <article>
+          <div className="detail-top">
+            <Vote post={post} onVote={vote} />
+            <div>
+              <Badge status={post.status} category={post.category} />
+            </div>
+          </div>
+          <h1>{post.title}</h1>
+          <div className="detail-meta">
+            <span>
+              <Avatar name={authorName(post)} /> {authorName(post)}
+            </span>
+            <span>{ago(post.createdAt)}</span>
+          </div>
+          <ReactMarkdown>{post.description}</ReactMarkdown>
+
+          <section className="comments-section">
+            <h2>Comments ({comments.length})</h2>
+
+            {user && (
+              <div className="new-comment">
+                <textarea
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Share your thoughts..."
+                  rows="3"
+                  disabled={busy}
+                />
+                <button onClick={addComment} disabled={busy}>
+                  {busy ? 'Posting...' : 'Post comment'}
+                </button>
+              </div>
+            )}
+
+            {!user && (
+              <p className="form-notice">
+                <Icon>ℹ️</Icon> Log in to leave a comment
+              </p>
+            )}
+
+            <div className="comments-list">
+              {comments.length > 0 ? (
+                comments.map((comment) => (
+                  <Comment
+                    key={comment._id}
+                    comment={comment}
+                    depth={0}
+                    postId={postId}
+                    reload={load}
+                    toast={toast}
+                  />
+                ))
+              ) : (
+                <p className="empty-state">No comments yet. Be the first to comment!</p>
+              )}
+            </div>
+          </section>
+        </article>
+      </div>
+    </main>
+  );
+}
+
+function Roadmap({ openPost }) {
+  const [posts, setPosts] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all(
+      ['Planned', 'In Progress', 'Completed'].map((status) =>
+        postsApi
+          .list({ status, limit: 50 })
+          .then((data) => ({ status, posts: data.posts }))
+      )
+    )
+      .then((results) => {
+        const grouped = {};
+        results.forEach(({ status, posts }) => {
+          grouped[status] = posts;
+        });
+        setPosts(grouped);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <main className="page roadmap"><SkeletonRows /></main>;
+
+  return (
+    <main className="page roadmap">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">Public roadmap</p>
+          <h1>What's coming</h1>
+          <p className="subhead">See what we're building</p>
+        </div>
+      </header>
+
+      <div className="roadmap-grid">
+        {['Planned', 'In Progress', 'Completed'].map((status) => (
+          <section key={status} className="roadmap-column">
+            <h2>{statusMap[status]?.label || status}</h2>
+            <div className="roadmap-posts">
+              {(posts[status] || []).map((post) => (
+                <article
+                  key={idOf(post)}
+                  className="roadmap-post"
+                  onClick={() => openPost(idOf(post))}
+                  role="button"
+                  tabIndex="0"
+                >
+                  <h4>{post.title}</h4>
+                  <p>{post.description?.slice(0, 100)}</p>
+                  <div className="roadmap-meta">
+                    <span>
+                      <Icon>👍</Icon> {post.voteCount}
+                    </span>
+                    <span>
+                      <Icon>💬</Icon> {post.commentCount || 0}
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </main>
+  );
+}
+
+function Admin({ openPost, toast }) {
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await postsApi.list({ limit: 100 });
+      setPosts(data.posts || []);
+    } catch (err) {
+      toast(apiErrorMessage(err), 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const updateStatus = async (postId, newStatus) => {
+    try {
+      await adminApi.updateStatus(postId, newStatus);
+      toast(`Status updated to ${newStatus}`);
+      load();
+    } catch (err) {
+      toast(apiErrorMessage(err), 'error');
+    }
+  };
+
+  if (!isAdmin(user)) {
+    return (
+      <main className="page admin">
+        <div className="form-error">Access denied. Admin only.</div>
+      </main>
+    );
+  }
+
+  if (loading) return <main className="page admin"><SkeletonRows /></main>;
+
+  return (
+    <main className="page admin">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">Admin console</p>
+          <h1>Manage requests</h1>
+          <p className="subhead">Review and update feature request statuses</p>
+        </div>
+      </header>
+
+      <div className="admin-list">
+        {posts.map((post) => (
+          <div key={idOf(post)} className="admin-row">
+            <div onClick={() => openPost(idOf(post))} role="button" tabIndex="0" style={{ cursor: 'pointer' }}>
+              <h4>{post.title}</h4>
+              <p className="eyebrow">{post.category}</p>
+            </div>
+            <div className="admin-controls">
+              <select
+                value={post.status}
+                onChange={(e) => updateStatus(idOf(post), e.target.value)}
+              >
+                {statuses.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+              <span className="badge">
+                <Icon>👍</Icon> {post.voteCount}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </main>
+  );
+}
+
+export default function App() {
+  const { user, loading, logout } = useAuth();
+  const [route, setRoute] = useState({ page: 'landing', postId: null });
+  const [toastState, setToastState] = useState(null);
+  const [authMode, setAuthMode] = useState('login'); // 'landing', 'login', 'signup'
+
+  useEffect(() => {
+    if (!loading) {
+      if (user) {
+        setRoute({ page: isAdmin(user) ? 'admin' : 'feed', postId: null });
+      } else {
+        setRoute({ page: 'landing', postId: null });
+      }
+    }
+  }, [user, loading]);
+
+  const toast = (message, kind = 'success') => {
+    setToastState({ message, kind });
+    setTimeout(() => setToastState(null), 3000);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+      logout();
+      setRoute({ page: 'landing', postId: null });
+      toast('Logged out');
+    } catch (err) {
+      toast(apiErrorMessage(err), 'error');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
+  // Show landing page if not authenticated
+  if (!user) {
+    if (route.page === 'landing') {
+      return (
+        <>
+          <LandingPage onGetStarted={() => setRoute({ page: 'login', postId: null })} />
+          <Toast toast={toastState} />
+        </>
+      );
+    }
+
+    if (route.page === 'login') {
+      return (
+        <>
+          <LoginPage
+            onLoginSuccess={() => {
+              const currentUser = user;
+              setRoute({ page: isAdmin(currentUser) ? 'admin' : 'feed', postId: null });
+              toast(`Welcome back, ${currentUser?.name}!`);
+            }}
+            onShowSignup={() => setRoute({ page: 'signup', postId: null })}
+            toast={toast}
+          />
+          <Toast toast={toastState} />
+        </>
+      );
+    }
+
+    if (route.page === 'signup') {
+      return (
+        <>
+          <SignupPage
+            onSignupSuccess={() => setRoute({ page: 'login', postId: null })}
+            onShowLogin={() => setRoute({ page: 'login', postId: null })}
+            toast={toast}
+          />
+          <Toast toast={toastState} />
+        </>
+      );
+    }
+  }
+
+  // Main app navigation
+  const nav = (
+    <nav className="nav">
+      <div className="nav-brand">
+        <button onClick={() => setRoute({ page: isAdmin(user) ? 'admin' : 'feed', postId: null })}>
+          🚀 Shiplist
+        </button>
+      </div>
+      <div className="nav-links">
+        {isAdmin(user) && (
+          <>
+            <button onClick={() => setRoute({ page: 'admin', postId: null })}>
+              Manage
+            </button>
+            <button onClick={() => setRoute({ page: 'roadmap', postId: null })}>
+              Roadmap
+            </button>
+          </>
+        )}
+        {!isAdmin(user) && (
+          <>
+            <button onClick={() => setRoute({ page: 'feed', postId: null })}>
+              Requests
+            </button>
+            <button onClick={() => setRoute({ page: 'roadmap', postId: null })}>
+              Roadmap
+            </button>
+          </>
+        )}
+      </div>
+      <div className="nav-end">
+        <div className="user-menu">
+          <Avatar name={user.name} />
+          <span>{user.name}</span>
+          <button onClick={handleLogout} className="nav-logout">
+            Log out
+          </button>
+        </div>
+      </div>
+    </nav>
+  );
+
+  return (
+    <>
+      {nav}
+      {route.page === 'feed' && (
+        <Feed
+          openPost={(postId) => setRoute({ page: 'detail', postId })}
+          toast={toast}
+        />
+      )}
+      {route.page === 'detail' && (
+        <Detail
+          postId={route.postId}
+          back={() => setRoute({ page: 'feed', postId: null })}
+          toast={toast}
+        />
+      )}
+      {route.page === 'roadmap' && (
+        <Roadmap
+          openPost={(postId) => setRoute({ page: 'detail', postId })}
+        />
+      )}
+      {route.page === 'admin' && (
+        <Admin
+          openPost={(postId) => setRoute({ page: 'detail', postId })}
+          toast={toast}
+        />
+      )}
+      <Toast toast={toastState} />
+    </>
+  );
+}
